@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS Reactive UI</title>
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow bg-glow-a"></div>
+  <div class="bg-glow bg-glow-b"></div>
+
+  <main class="app-shell">
+    <header class="topbar panel">
+      <div class="brand-block">
+        <div class="brand-kicker">Stark-style reactive shell</div>
+        <div class="brand-title">JARVIS</div>
+        <div class="brand-sub">Live core status, voice reactivity and runtime logs</div>
+      </div>
+      <div class="topbar-right">
+        <div class="status-chip" id="statusChip">IDLE</div>
+        <button id="micVisBtn" class="hud-btn" type="button">MIC VIS OFF</button>
+      </div>
+    </header>
+
+    <section class="content-grid">
+      <section class="orb-panel panel">
+        <div class="orb-stage">
+          <canvas id="orbCanvas" aria-label="Jarvis orb"></canvas>
+          <div class="orb-overlay">
+            <div class="orb-reticle"></div>
+            <div class="orb-readouts">
+              <div class="readout small">
+                <span class="label">mode</span>
+                <span class="value" id="modeValue">standby</span>
+              </div>
+              <div class="readout small">
+                <span class="label">signal</span>
+                <span class="value" id="signalValue">0.00</span>
+              </div>
+              <div class="readout small">
+                <span class="label">mic</span>
+                <span class="value" id="micValue">off</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-strip">
+          <div class="mini-card">
+            <span class="label">STATE</span>
+            <span class="value" id="stateValue">idle</span>
+          </div>
+          <div class="mini-card">
+            <span class="label">INTENT</span>
+            <span class="value trunc" id="intentValue">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="label">ACTION</span>
+            <span class="value trunc" id="actionValue">—</span>
+          </div>
+          <div class="mini-card wide">
+            <span class="label">SUBTITLE</span>
+            <span class="value trunc" id="subtitleValue">Awaiting signal…</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="logs-panel panel">
+        <div class="logs-head">
+          <div>
+            <div class="logs-title">Logs vivos de Jarvis</div>
+            <div class="logs-sub">Scroll interno · no expande la página</div>
+          </div>
+          <button id="clearLogsBtn" class="hud-btn ghost" type="button">CLEAR</button>
+        </div>
+        <div class="logs-wrap" id="logsWrap">
+          <pre id="logsOutput" class="logs-output"></pre>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

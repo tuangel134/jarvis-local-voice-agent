@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from jarvis.brain.intent_classifier import Intent
+from jarvis.skills.base import Skill
+from jarvis.utils.security import app_allowed
+from jarvis.utils.text import normalize
+
+
+class AppsSkill(Skill):
+    name = 'apps'
+    description = 'Abre aplicaciones permitidas desde una allowlist con alias y fallbacks.'
+
+    def can_handle(self, intent: Intent) -> bool:
+        return intent.name == 'open_app'
+
+    def run(self, intent: Intent, entities: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        requested = normalize(str(entities.get('app', '') or ''))
+        if not requested:
+            return {'ok': False, 'error': 'No detecté qué aplicación abrir.'}
+
+        candidates = self._candidate_apps(requested)
+        if not candidates:
+            return {'ok': False, 'error': f'No tengo alias para abrir {requested}.'}
+
+        blocked = []
+        missing = []
+        for app in candidates:
+            if not app:
+                continue
+            app_name = Path(app).name
+            if not app_allowed(app_name, self.config):
+                blocked.append(app_name)
+                continue
+            binary = shutil.which(app_name)
+            if not binary:
+                missing.append(app_name)
+                continue
+            subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {'ok': True, 'message': f'Abriendo {self._pretty_name(requested, app_name)}.'}
+
+        if blocked:
+            return {'ok': False, 'error': f'La aplicación {blocked[0]} no está en la lista permitida.'}
+        if missing:
+            return {'ok': False, 'error': f'No encontré instalado: {missing[0]}.'}
+        return {'ok': False, 'error': f'No pude abrir {requested}.'}
+
+    def _candidate_apps(self, requested: str) -> list[str]:
+        aliases_raw = self.config.get('security', {}).get('app_aliases', {}) or {}
+        aliases = {normalize(str(k)): v for k, v in aliases_raw.items()}
+
+        candidates: list[str] = []
+
+        def add(value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    add(item)
+                return
+            s = str(value).strip()
+            if s and s not in candidates:
+                candidates.append(s)
+
+        # Exacto.
+        add(aliases.get(requested))
+
+        # Quitar artículos comunes.
+        for prefix in ('la ', 'el ', 'los ', 'las ', 'un ', 'una '):
+            if requested.startswith(prefix):
+                add(aliases.get(requested[len(prefix):].strip()))
+
+        # Coincidencia parcial: "abre el navegador brave".
+        for alias, value in aliases.items():
+            if alias and alias in requested:
+                add(value)
+
+        # Fallback: primera palabra o texto completo.
+        add(requested)
+        if ' ' in requested:
+            add(requested.split()[0])
+
+        return candidates
+
+    def _pretty_name(self, requested: str, app: str) -> str:
+        pretty = requested.strip() or app
+        return pretty[0].upper() + pretty[1:]

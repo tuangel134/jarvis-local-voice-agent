@@ -1,0 +1,191 @@
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import sounddevice as sd
+from scipy.signal import resample_poly
+
+from jarvis.stt.base import STTProvider
+
+
+@dataclass
+class WakeResult:
+    detected: bool
+    text: str = ""
+    command_after_wake: str = ""
+
+
+class WakeWordDetector:
+    """
+    Detector real de wake word usando openWakeWord.
+
+    Esto NO usa Whisper para detectar "hey jarvis".
+    openWakeWord escucha audio crudo y activa con el modelo:
+    hey_jarvis_v0.1.onnx
+
+    Flujo recomendado:
+      Tú:     "hey jarvis"
+      Jarvis: detecta y empieza a grabar comando
+      Tú:     "abre youtube"
+    """
+
+    def __init__(self, config: dict[str, Any], stt: STTProvider, logger: logging.Logger | None = None):
+        self.config = config
+        self.stt = stt
+        self.logger = logger or logging.getLogger("jarvis.wakeword")
+
+        audio_cfg = config.get("audio", {})
+        assistant_cfg = config.get("assistant", {})
+
+        self.input_device = audio_cfg.get("input_device", 2)
+        self.capture_sample_rate = int(audio_cfg.get("sample_rate", 48000))
+        self.channels = 1
+
+        self.oww_sample_rate = 16000
+        self.frame_seconds = 0.08
+
+        self.capture_block_size = int(self.capture_sample_rate * self.frame_seconds)
+
+        self.threshold = float(assistant_cfg.get("openwakeword_threshold", 0.35))
+        self.debug = bool(assistant_cfg.get("debug", False))
+
+        self.model = None
+        self.model_path = self._find_model_path()
+        self._load_model()
+
+    def _find_model_path(self) -> Path:
+        import openwakeword
+
+        base = Path(openwakeword.__file__).parent
+        model_path = base / "resources" / "models" / "hey_jarvis_v0.1.onnx"
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"No encontré modelo openWakeWord: {model_path}")
+
+        return model_path
+
+    def _load_model(self) -> None:
+        from openwakeword.model import Model
+
+        self.logger.info("Cargando openWakeWord desde: %s", self.model_path)
+
+        try:
+            self.model = Model(
+                wakeword_models=[str(self.model_path)],
+                inference_framework="onnx",
+                vad_threshold=0.0,
+            )
+        except TypeError:
+            self.model = Model(
+                wakeword_models=[str(self.model_path)],
+            )
+
+        self.logger.info(
+            "openWakeWord listo | modelo=%s | threshold=%.2f | input_device=%r | sample_rate=%s",
+            self.model_path.name,
+            self.threshold,
+            self.input_device,
+            self.capture_sample_rate,
+        )
+
+    def wait(self, should_continue) -> WakeResult:
+        if self.model is None:
+            self._load_model()
+
+        self.logger.info("Escuchando wake word con openWakeWord: hey jarvis")
+
+        try:
+            with sd.InputStream(
+                samplerate=self.capture_sample_rate,
+                channels=self.channels,
+                dtype="int16",
+                blocksize=self.capture_block_size,
+                device=self.input_device,
+            ) as stream:
+                while should_continue():
+                    try:
+                        audio, overflowed = stream.read(self.capture_block_size)
+
+                        if overflowed:
+                            self.logger.warning("Audio overflow en wake word")
+
+                        frame = self._prepare_frame(audio)
+                        prediction = self.model.predict(frame)
+
+                        detected, best_name, best_score = self._is_detected(prediction)
+
+                        if self.debug and best_score >= 0.10:
+                            self.logger.info(
+                                "openWakeWord score: modelo=%s score=%.3f",
+                                best_name,
+                                best_score,
+                            )
+
+                        if detected:
+                            self.logger.info(
+                                "Wake word detectada por openWakeWord: modelo=%s score=%.3f",
+                                best_name,
+                                best_score,
+                            )
+
+                            return WakeResult(
+                                detected=True,
+                                text=f"openWakeWord:{best_name}:{best_score:.3f}",
+                                command_after_wake="",
+                            )
+
+                    except Exception as exc:
+                        self.logger.error("Error en loop openWakeWord: %s", exc, exc_info=True)
+                        time.sleep(1.0)
+
+        except Exception as exc:
+            self.logger.error("Error abriendo micrófono para openWakeWord: %s", exc, exc_info=True)
+            time.sleep(1.0)
+
+        return WakeResult(False)
+
+    def listen_once(self) -> WakeResult:
+        return self.wait(lambda: True)
+
+    def _prepare_frame(self, audio: np.ndarray) -> np.ndarray:
+        audio = np.asarray(audio)
+
+        if audio.ndim > 1:
+            audio = audio[:, 0]
+
+        audio = audio.astype(np.int16)
+
+        if self.capture_sample_rate != self.oww_sample_rate:
+            if self.capture_sample_rate == 48000:
+                audio = resample_poly(audio, 1, 3)
+            elif self.capture_sample_rate == 44100:
+                audio = resample_poly(audio, 160, 441)
+            else:
+                audio = resample_poly(audio, self.oww_sample_rate, self.capture_sample_rate)
+
+        return np.asarray(audio, dtype=np.int16)
+
+    def _is_detected(self, prediction: Any) -> tuple[bool, str, float]:
+        if not isinstance(prediction, dict) or not prediction:
+            return False, "", 0.0
+
+        best_name = ""
+        best_score = 0.0
+
+        for name, score in prediction.items():
+            try:
+                s = float(score)
+            except Exception:
+                continue
+
+            if s > best_score:
+                best_name = str(name)
+                best_score = s
+
+        return best_score >= self.threshold, best_name, best_score

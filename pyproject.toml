@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-local-voice-agent"
+version = "1.0.1"
+description = "Jarvis Local Voice Agent: asistente de voz local-first para Linux/Zorin/Ubuntu"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Angel" }]
+dependencies = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+  "PyYAML>=6.0.1",
+  "python-dotenv>=1.0.1",
+  "requests>=2.31.0",
+  "psutil>=5.9.8",
+  "numpy>=1.24.0",
+  "scipy>=1.10.0",
+  "sounddevice>=0.4.6",
+  "soundfile>=0.12.1",
+  "faster-whisper>=1.0.3",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.30.0"]
+groq = ["groq>=0.9.0"]
+coqui = ["TTS>=0.22.0"]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+jarvis = "jarvis.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

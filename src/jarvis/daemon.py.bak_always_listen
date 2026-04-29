@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import logging
+import signal
+import time
+from pathlib import Path
+
+from jarvis.audio.recorder import Recorder
+from jarvis.audio.wakeword import WakeWordDetector
+from jarvis.brain.executor import Executor
+from jarvis.brain.intent_classifier import IntentClassifier
+from jarvis.config import load_config
+from jarvis.llm.router import LLMRouter
+from jarvis.logger import setup_logger
+from jarvis.skills.registry import SkillRegistry
+from jarvis.state import JarvisState
+from jarvis.stt.factory import create_stt
+from jarvis.tts.manager import TTSManager
+
+RUNNING = True
+
+
+def _handle_signal(signum, frame):  # noqa: ANN001
+    global RUNNING
+    RUNNING = False
+
+
+def main() -> None:
+    global RUNNING
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
+    config = load_config()
+    logger = setup_logger(config)
+    state = JarvisState()
+    state.set_pid()
+    logger.info('Jarvis daemon iniciado')
+
+    stt = create_stt(config, logger)
+    tts = TTSManager(config, logger)
+    classifier = IntentClassifier(config)
+    skills = SkillRegistry(config)
+    llm = LLMRouter(config, logger)
+    executor = Executor(config, skills, llm, logger)
+    recorder = Recorder(config)
+    wake = WakeWordDetector(config, stt, logger)
+    debug = bool(config.get('assistant', {}).get('debug', False))
+
+    def should_continue() -> bool:
+        return RUNNING and state.is_enabled()
+
+    while RUNNING:
+        if not state.is_enabled():
+            time.sleep(1.0)
+            continue
+        try:
+            logger.info('Escuchando wake word')
+            wake_result = wake.wait(should_continue)
+            if not RUNNING or not state.is_enabled():
+                continue
+            if not wake_result.detected:
+                continue
+            command_text = wake_result.command_after_wake.strip()
+            if not command_text:
+                activation = config.get('assistant', {}).get('activation_reply', 'Sí, dime.')
+                try:
+                    tts.speak(activation)
+                except Exception as exc:
+                    logger.warning('No se pudo reproducir respuesta de activación: %s', exc)
+                wav = recorder.record_command()
+                try:
+                    command_text = stt.transcribe(wav).strip()
+                finally:
+                    if not debug:
+                        Path(wav).unlink(missing_ok=True)
+            if not command_text:
+                logger.info('Comando vacío después de wake word')
+                continue
+            logger.info('Texto transcrito: %s', command_text)
+            intent = classifier.classify(command_text)
+            logger.info('Intención detectada: %s entities=%s', intent.name, intent.entities)
+            if intent.name == 'stop_listening':
+                state.set_enabled(False)
+                response = 'Jarvis desactivado. El micrófono ya no está siendo escuchado.'
+            else:
+                response = executor.execute(intent)
+            logger.info('Respuesta: %s', response)
+            try:
+                tts.speak(response)
+            except Exception as exc:
+                logger.error('Falló TTS final: %s', exc, exc_info=True)
+        except Exception as exc:
+            logger.error('Error en loop principal: %s', exc, exc_info=True)
+            time.sleep(1.0)
+
+    logger.info('Jarvis daemon detenido')
+
+
+if __name__ == '__main__':
+    main()

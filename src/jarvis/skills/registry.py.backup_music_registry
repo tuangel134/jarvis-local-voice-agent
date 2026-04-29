@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from typing import Any
+
+from jarvis.brain.intent_classifier import Intent
+from jarvis.skills.apps import AppsSkill
+from jarvis.skills.base import Skill
+from jarvis.skills.browser import BrowserSkill
+from jarvis.skills.files import FilesSkill
+from jarvis.skills.notes import NotesSkill
+from jarvis.skills.reminders import RemindersSkill
+from jarvis.skills.services import ServicesSkill
+from jarvis.skills.shell_safe import ShellSafeSkill
+from jarvis.skills.system import SystemSkill
+
+
+class SkillRegistry:
+    def __init__(self, config: dict[str, Any]):
+        self.config = config
+        self.skills: list[Skill] = [
+            BrowserSkill(config),
+            AppsSkill(config),
+            FilesSkill(config),
+            SystemSkill(config),
+            ServicesSkill(config),
+            NotesSkill(config),
+            RemindersSkill(config),
+            ShellSafeSkill(config),
+        ]
+
+    def find(self, intent: Intent) -> Skill | None:
+        for skill in self.skills:
+            if skill.can_handle(intent):
+                return skill
+        return None
+
+    def list(self) -> list[dict[str, str]]:
+        return [{'name': skill.name, 'description': skill.description} for skill in self.skills]

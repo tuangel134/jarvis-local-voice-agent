@@ -1,0 +1,16 @@
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Jarvis patch backups
+*.before_*
+*.bak
+*.tmp
+
+# Local runtime / virtualenvs
+.venv/
+venv/
+env/

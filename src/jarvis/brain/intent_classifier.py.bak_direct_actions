@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from jarvis.utils.text import normalize, remove_command_prefix
+
+
+@dataclass
+class Intent:
+    name: str
+    confidence: float = 1.0
+    entities: dict[str, Any] = field(default_factory=dict)
+    raw_text: str = ''
+
+
+class IntentClassifier:
+    def __init__(self, config: dict[str, Any]):
+        self.config = config
+
+    def classify(self, text: str) -> Intent:
+        raw = text.strip()
+        t = normalize(raw)
+        aliases = self.config.get('security', {}).get('url_aliases', {})
+
+        if not t:
+            return Intent('unknown', 0.0, raw_text=raw)
+        if any(x in t for x in ['deja de escuchar', 'apagate', 'desactivate', 'duermete', 'apágate', 'desactívate', 'duérmete']):
+            return Intent('stop_listening', raw_text=raw)
+        if any(x in t for x in ['usa la ia avanzada', 'modelo potente', 'esto es pesado', 'analiza este error', 'revisa este log']):
+            return Intent('heavy_reasoning', raw_text=raw)
+        if any(x in t for x in ['que hora es', 'qué hora es', 'dime la hora', 'hora actual']):
+            return Intent('get_time', raw_text=raw)
+        if any(x in t for x in ['que fecha es', 'qué fecha es', 'fecha de hoy', 'dia es hoy', 'día es hoy']):
+            return Intent('get_date', raw_text=raw)
+        if any(x in t for x in ['estado del sistema', 'como esta la pc', 'cómo está la pc', 'memoria', 'cpu', 'disco']):
+            return Intent('system_status', raw_text=raw)
+        if any(x in t for x in ['jellyfin', 'immich', 'docker', 'ssh']):
+            service = self._extract_service(t)
+            if any(x in t for x in ['revisa', 'estado', 'activo', 'corriendo', 'esta arriba', 'está arriba', 'servicio']):
+                return Intent('service_status', entities={'service': service}, raw_text=raw)
+        if t.startswith(('abre ', 'abrir ', 'lanza ', 'inicia ')):
+            target = re.sub(r'^(abre|abrir|lanza|inicia)\s+', '', t).strip()
+            url = self._url_from_target(target, aliases)
+            if url:
+                return Intent('open_url', entities={'url': url, 'target': target}, raw_text=raw)
+            folder = self._folder_from_target(target)
+            if folder:
+                return Intent('open_folder', entities={'path': str(folder), 'target': target}, raw_text=raw)
+            return Intent('open_app', entities={'app': target}, raw_text=raw)
+        if re.search(r'https?://\S+', raw):
+            return Intent('open_url', entities={'url': re.search(r'https?://\S+', raw).group(0)}, raw_text=raw)
+        if any(x in t for x in ['crea una nota', 'crear una nota', 'guarda una nota', 'nota que diga']):
+            content = re.sub(r'.*?(crea una nota|crear una nota|guarda una nota|nota que diga)\s*(que diga)?', '', raw, flags=re.I).strip(' :')
+            return Intent('create_note', entities={'content': content or raw}, raw_text=raw)
+        if any(x in t for x in ['lee notas', 'leer notas', 'ultimas notas', 'últimas notas']):
+            return Intent('read_note', raw_text=raw)
+        if any(x in t for x in ['busca el archivo', 'buscar archivo', 'encuentra el archivo', 'busca archivo']):
+            query = re.sub(r'.*?(busca|buscar|encuentra)\s+(el\s+)?archivo\s+', '', raw, flags=re.I).strip()
+            return Intent('search_file', entities={'query': query}, raw_text=raw)
+        if any(x in t for x in ['ejecuta', 'corre comando', 'ejecuta comando', 'terminal']):
+            command = remove_command_prefix(raw)
+            return Intent('safe_shell', entities={'command': command}, raw_text=raw)
+        if any(x in t for x in ['recordatorio', 'recuerdame', 'recuérdame']):
+            return Intent('create_reminder', entities={'text': raw}, raw_text=raw)
+        if any(x in t for x in ['lista recordatorios', 'mis recordatorios']):
+            return Intent('list_reminders', raw_text=raw)
+        return Intent('chat', 0.6, raw_text=raw)
+
+    def _url_from_target(self, target: str, aliases: dict[str, str]) -> str | None:
+        for key, url in aliases.items():
+            if normalize(key) in target:
+                return url
+        if target.startswith(('http://', 'https://')):
+            return target
+        if re.match(r'^[\w.-]+\.[a-z]{2,}(/.*)?$', target):
+            return 'https://' + target
+        return None
+
+    def _folder_from_target(self, target: str) -> Path | None:
+        mapping = {
+            'descargas': '~/Descargas',
+            'downloads': '~/Downloads',
+            'documentos': '~/Documentos',
+            'documents': '~/Documents',
+            'escritorio': '~/Escritorio',
+            'desktop': '~/Desktop',
+            'videos': '~/Videos',
+            'vídeos': '~/Videos',
+            'imagenes': '~/Imágenes',
+            'imágenes': '~/Imágenes',
+            'musica': '~/Música',
+            'música': '~/Música',
+            'home': '~',
+            'carpeta personal': '~',
+        }
+        for key, path in mapping.items():
+            if key in target:
+                return Path(path).expanduser()
+        if target.startswith('~/') or target.startswith('/'):
+            return Path(target).expanduser()
+        return None
+
+    def _extract_service(self, text: str) -> str:
+        for svc in ('jellyfin', 'immich', 'docker', 'ssh'):
+            if svc in text:
+                return svc
+        return text.split()[-1]

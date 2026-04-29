@@ -1,0 +1,8 @@
+{
+  "name": "JARVIS Reactive UI",
+  "short_name": "JARVIS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060912",
+  "theme_color": "#2e79ff"
+}

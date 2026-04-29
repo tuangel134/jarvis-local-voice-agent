@@ -1,0 +1,468 @@
+
+from __future__ import annotations
+
+import re
+import unicodedata
+import urllib.parse
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class IntentResult:
+    intent: str
+    entities: dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.0
+
+
+class IntentClassifier:
+    def __init__(self, config: dict[str, Any] | None = None):
+        self.config = config or {}
+
+    def classify(self, text: str) -> IntentResult:
+        raw = text or ""
+        t = self._norm(raw)
+
+        if not t:
+            return IntentResult("unknown", {}, 0.0)
+
+        music = self._classify_music(raw, t)
+        if music:
+            return music
+
+        url_alias = self._classify_url_alias(raw, t)
+        if url_alias:
+            return url_alias
+
+        app_alias = self._classify_app_alias(raw, t)
+        if app_alias:
+            return app_alias
+
+        if self._has_any(t, [
+            "abre youtube",
+            "abrir youtube",
+            "abre yutube",
+            "abre jutube",
+            "pon youtube",
+            "youtube",
+            "abre you tube",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://www.youtube.com",
+                "name": "YouTube"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre youtube music",
+            "abrir youtube music",
+            "youtube music",
+            "musica de youtube",
+            "música de youtube",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://music.youtube.com",
+                "name": "YouTube Music"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre tidal",
+            "abrir tidal",
+            "tidal",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://tidal.com",
+                "name": "TIDAL"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre spotify",
+            "abrir spotify",
+            "spotify",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://open.spotify.com",
+                "name": "Spotify"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre google",
+            "abrir google",
+            "google",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://www.google.com",
+                "name": "Google"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre chatgpt",
+            "chat gpt",
+            "chatgpt",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://chatgpt.com",
+                "name": "ChatGPT"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre github",
+            "git hub",
+            "github",
+        ]):
+            return IntentResult("open_url", {
+                "url": "https://github.com",
+                "name": "GitHub"
+            }, 0.99)
+
+        if self._has_any(t, [
+            "abre descargas",
+            "carpeta descargas",
+            "mis descargas",
+            "abre downloads",
+        ]):
+            return IntentResult("open_folder", {"path": "~/Descargas"}, 0.98)
+
+        if self._has_any(t, [
+            "abre documentos",
+            "carpeta documentos",
+            "mis documentos",
+        ]):
+            return IntentResult("open_folder", {"path": "~/Documentos"}, 0.98)
+
+        if self._has_any(t, [
+            "abre escritorio",
+            "carpeta escritorio",
+            "mi escritorio",
+        ]):
+            return IntentResult("open_folder", {"path": "~/Escritorio"}, 0.98)
+
+        if self._has_any(t, [
+            "que hora es",
+            "dime la hora",
+            "hora es",
+        ]):
+            return IntentResult("get_time", {}, 0.98)
+
+        if self._has_any(t, [
+            "que fecha es",
+            "dime la fecha",
+            "fecha es",
+        ]):
+            return IntentResult("get_date", {}, 0.98)
+
+        if "jellyfin" in t:
+            return IntentResult("service_status", {"service": "jellyfin"}, 0.95)
+
+        if "immich" in t:
+            return IntentResult("service_status", {"service": "immich"}, 0.95)
+
+        if "docker" in t:
+            return IntentResult("service_status", {"service": "docker"}, 0.90)
+
+        if self._has_any(t, [
+            "crea una nota",
+            "crear una nota",
+            "guarda una nota",
+        ]):
+            note = self._extract_after_any(t, [
+                "crea una nota que diga",
+                "crear una nota que diga",
+                "guarda una nota que diga",
+                "crea una nota",
+                "crear una nota",
+                "guarda una nota",
+            ])
+            return IntentResult("create_note", {"text": note or raw}, 0.95)
+
+        if self._has_any(t, [
+            "usa la ia avanzada",
+            "usa modelo potente",
+            "usa el modelo potente",
+            "analiza este error completo",
+            "revisa este log completo",
+            "genera codigo",
+            "genera código",
+        ]):
+            return IntentResult("heavy_reasoning", {"text": raw}, 0.90)
+
+        return IntentResult("chat", {"text": raw}, 0.40)
+
+    def _classify_music(self, raw: str, t: str) -> IntentResult | None:
+        play_words = [
+            "reproduce",
+            "reproducir",
+            "reproduzca",
+            "reprodusca",
+            "pon",
+            "ponme",
+            "pon la cancion",
+            "pon la canción",
+            "toca",
+            "escuchar",
+            "quiero escuchar",
+            "abre youtube y reproduce",
+            "abri youtube y reproduzca",
+            "abre youtube y pon",
+            "abre tidal y reproduce",
+            "abre spotify y reproduce",
+        ]
+
+        has_play = self._has_any(t, play_words)
+
+        youtube_words = [
+            "youtube",
+            "you tube",
+            "yutube",
+            "jutube",
+            "yutub",
+            "yu tube",
+        ]
+
+        youtube_music_words = [
+            "youtube music",
+            "musica de youtube",
+            "música de youtube",
+            "yt music",
+        ]
+
+        tidal_words = [
+            "tidal",
+            "taidal",
+            "taital",
+        ]
+
+        spotify_words = [
+            "spotify",
+            "espoti",
+            "espotifai",
+        ]
+
+        if not has_play:
+            return None
+
+        if self._has_any(t, youtube_music_words):
+            query = self._extract_music_query(raw, t, platform="youtube_music")
+            if not query:
+                return IntentResult("open_url", {
+                    "url": "https://music.youtube.com",
+                    "name": "YouTube Music"
+                }, 0.95)
+
+            url = "https://music.youtube.com/search?q=" + urllib.parse.quote_plus(query)
+            return IntentResult("open_url", {
+                "url": url,
+                "name": f"YouTube Music: {query}",
+                "query": query,
+                "platform": "youtube_music"
+            }, 0.99)
+
+        if self._has_any(t, youtube_words):
+            query = self._extract_music_query(raw, t, platform="youtube")
+            if not query:
+                return IntentResult("open_url", {
+                    "url": "https://www.youtube.com",
+                    "name": "YouTube"
+                }, 0.95)
+
+            # Abrimos búsqueda. Para autoplay real del primer resultado se necesita
+            # automatización extra con Playwright o reproducir con mpv/yt-dlp.
+            url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
+            return IntentResult("open_url", {
+                "url": url,
+                "name": f"YouTube: {query}",
+                "query": query,
+                "platform": "youtube"
+            }, 0.99)
+
+        if self._has_any(t, tidal_words):
+            query = self._extract_music_query(raw, t, platform="tidal")
+            if not query:
+                return IntentResult("open_url", {
+                    "url": "https://tidal.com",
+                    "name": "TIDAL"
+                }, 0.95)
+
+            url = "https://tidal.com/search?q=" + urllib.parse.quote_plus(query)
+            return IntentResult("open_url", {
+                "url": url,
+                "name": f"TIDAL: {query}",
+                "query": query,
+                "platform": "tidal"
+            }, 0.99)
+
+        if self._has_any(t, spotify_words):
+            query = self._extract_music_query(raw, t, platform="spotify")
+            if not query:
+                return IntentResult("open_url", {
+                    "url": "https://open.spotify.com",
+                    "name": "Spotify"
+                }, 0.95)
+
+            url = "https://open.spotify.com/search/" + urllib.parse.quote_plus(query)
+            return IntentResult("open_url", {
+                "url": url,
+                "name": f"Spotify: {query}",
+                "query": query,
+                "platform": "spotify"
+            }, 0.99)
+
+        # Si dice "reproduce X" sin plataforma, usar YouTube Music por defecto.
+        query = self._extract_music_query(raw, t, platform="generic")
+        if query:
+            url = "https://music.youtube.com/search?q=" + urllib.parse.quote_plus(query)
+            return IntentResult("open_url", {
+                "url": url,
+                "name": f"YouTube Music: {query}",
+                "query": query,
+                "platform": "youtube_music"
+            }, 0.94)
+
+        return None
+
+    def _extract_music_query(self, raw: str, t: str, platform: str) -> str:
+        q = self._norm(raw)
+
+        remove_phrases = [
+            "abre youtube y reproduce",
+            "abri youtube y reproduzca",
+            "abrir youtube y reproduce",
+            "abre youtube y pon",
+            "abre youtube y busca",
+            "abre youtube music y reproduce",
+            "abre tidal y reproduce",
+            "abre spotify y reproduce",
+
+            "reproduce",
+            "reproducir",
+            "reproduzca",
+            "reprodusca",
+            "ponme",
+            "pon",
+            "pon la cancion",
+            "pon la canción",
+            "toca",
+            "escuchar",
+            "quiero escuchar",
+            "busca",
+            "buscar",
+
+            "en youtube music",
+            "en youtube",
+            "en you tube",
+            "en yutube",
+            "en jutube",
+            "en tidal",
+            "en spotify",
+
+            "youtube music",
+            "youtube",
+            "you tube",
+            "yutube",
+            "jutube",
+            "tidal",
+            "spotify",
+
+            "por favor",
+            "favor",
+        ]
+
+        for phrase in remove_phrases:
+            q = q.replace(self._norm(phrase), " ")
+
+        q = re.sub(r"\b(y|e|el|la|los|las|un|una|de|del|en)\b", " ", q)
+        q = re.sub(r"\s+", " ", q).strip()
+
+        # Limpieza de errores típicos de Whisper.
+        q = q.replace("kevin carl", "kevin kaarl")
+        q = q.replace("kevin card", "kevin kaarl")
+        q = q.replace("kevin karl", "kevin kaarl")
+        q = q.replace("quebin", "kevin")
+
+        return q.strip()
+
+    def _classify_url_alias(self, raw: str, t: str) -> IntentResult | None:
+        sec = self.config.get("security", {})
+        aliases = sec.get("url_aliases", {}) or {}
+
+        if not isinstance(aliases, dict):
+            return None
+
+        for alias, url in aliases.items():
+            alias_norm = self._norm(str(alias))
+            if alias_norm and alias_norm in t:
+                if self._looks_like_open_command(t):
+                    return IntentResult("open_url", {
+                        "url": str(url),
+                        "name": str(alias),
+                    }, 0.95)
+
+        return None
+
+    def _classify_app_alias(self, raw: str, t: str) -> IntentResult | None:
+        sec = self.config.get("security", {})
+        aliases = sec.get("app_aliases", {}) or {}
+
+        if not isinstance(aliases, dict):
+            return None
+
+        # Formato 1:
+        # app_aliases:
+        #   calculadora: gnome-calculator
+        for alias, target in aliases.items():
+            if isinstance(target, str):
+                alias_norm = self._norm(str(alias))
+                if alias_norm and alias_norm in t and self._looks_like_open_command(t):
+                    return IntentResult("open_app", {
+                        "app": target,
+                        "name": str(alias),
+                    }, 0.95)
+
+            # Formato 2:
+            # app_aliases:
+            #   gnome-calculator:
+            #     - calculadora
+            #     - calculator
+            if isinstance(target, list):
+                app = str(alias)
+                for item in target:
+                    item_norm = self._norm(str(item))
+                    if item_norm and item_norm in t and self._looks_like_open_command(t):
+                        return IntentResult("open_app", {
+                            "app": app,
+                            "name": str(item),
+                        }, 0.95)
+
+        return None
+
+    def _looks_like_open_command(self, t: str) -> bool:
+        return self._has_any(t, [
+            "abre",
+            "abrir",
+            "abreme",
+            "ábreme",
+            "ejecuta",
+            "inicia",
+            "lanza",
+            "pon",
+            "reproduce",
+            "quiero",
+        ])
+
+    def _norm(self, text: str) -> str:
+        text = str(text or "").strip().lower()
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(c for c in text if not unicodedata.combining(c))
+        text = re.sub(r"[^a-z0-9ñ\s:/._-]+", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _has_any(self, text: str, patterns: list[str]) -> bool:
+        return any(self._norm(p) in text for p in patterns)
+
+    def _extract_after_any(self, text: str, patterns: list[str]) -> str:
+        for pattern in patterns:
+            p = self._norm(pattern)
+            idx = text.find(p)
+            if idx >= 0:
+                return text[idx + len(p):].strip()
+        return ""

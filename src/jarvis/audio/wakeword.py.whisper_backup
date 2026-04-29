@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import logging
+import re
+import time
+import unicodedata
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from jarvis.audio.recorder import Recorder
+from jarvis.stt.base import STTProvider
+from jarvis.utils.text import strip_wake_word
+
+
+def _norm(text: str) -> str:
+    text = text.strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    text = re.sub(r"[^a-z0-9ñ\s]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+@dataclass
+class WakeResult:
+    detected: bool
+    text: str = ""
+    command_after_wake: str = ""
+
+
+class WakeWordDetector:
+    def __init__(self, config: dict[str, Any], stt: STTProvider, logger: logging.Logger | None = None):
+        self.config = config
+        self.stt = stt
+        self.recorder = Recorder(config)
+        self.logger = logger or logging.getLogger("jarvis.wakeword")
+        self.wake_words = config.get("assistant", {}).get("wake_words", ["hey jarvis", "oye jarvis", "jarvis"])
+        self.debug = bool(config.get("assistant", {}).get("debug", False))
+
+        self.extra_variants = [
+            "jarvis",
+            "yarvis",
+            "yervis",
+            "yerbis",
+            "yervi",
+            "gervis",
+            "gerbis",
+            "hierbas",
+            "herbas",
+            "harvey",
+            "yerpice",
+            "yarpis",
+            "yarpice",
+        ]
+
+    def _detect_variant(self, text: str) -> tuple[bool, str]:
+        normalized = _norm(text)
+
+        found, after = strip_wake_word(normalized, self.wake_words)
+        if found:
+            return True, after
+
+        for variant in self.extra_variants:
+            v = _norm(variant)
+            idx = normalized.find(v)
+            if idx >= 0:
+                after = normalized[idx + len(v):].strip(" ,.:;")
+                return True, after
+
+        return False, ""
+
+    def listen_once(self) -> WakeResult:
+        wav = self.recorder.record_wake_chunk()
+        try:
+            text = (self.stt.transcribe(wav) or "").strip()
+            self.logger.info("Wake chunk transcrito: %r", text)
+
+            found, after = self._detect_variant(text)
+
+            if found:
+                self.logger.info("Wake word detectada: texto=%r comando=%r", text, after)
+                return WakeResult(True, text=text, command_after_wake=after)
+
+            return WakeResult(False, text=text)
+        finally:
+            self._cleanup(wav)
+
+    def wait(self, should_continue) -> WakeResult:
+        while should_continue():
+            try:
+                result = self.listen_once()
+                if result.detected:
+                    return result
+            except Exception as exc:
+                self.logger.error("Error escuchando wake word: %s", exc, exc_info=True)
+                time.sleep(1.0)
+        return WakeResult(False)
+
+    def _cleanup(self, wav: Path) -> None:
+        if not self.debug:
+            try:
+                wav.unlink(missing_ok=True)
+            except Exception:
+                pass

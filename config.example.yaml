@@ -1,0 +1,190 @@
+assistant:
+  name: "Jarvis"
+  language: "es"
+  wake_words:
+    - "hey jarvis"
+    - "oye jarvis"
+    - "jarvis"
+  activation_reply: "Sí, dime."
+  always_listening: true
+  require_wake_word: true
+  debug: false
+
+audio:
+  input_device: "default"
+  output_device: "default"
+  wake_input_device: "default"
+  wake_input_device_name: ""
+  stt_input_device: "default"
+  stt_input_device_name: ""
+  input_device_name: ""
+  output_device_name: ""
+  pulse_source_id: ""
+  pulse_source_name: ""
+  pulse_sink_id: ""
+  pulse_sink_name: ""
+  sample_rate: 16000
+  channels: 1
+  vad_enabled: true
+  silence_timeout_seconds: 1.2
+  max_command_seconds: 15
+  wake_chunk_seconds: 2.5
+  min_voice_energy: 0.011
+
+stt:
+  provider: "faster-whisper"
+  model: "base"
+  device: "cpu"
+  compute_type: "int8"
+  language: "es"
+  whispercpp_binary: "whisper-cli"
+  whispercpp_model: "~/.local/share/jarvis/models/ggml-base.bin"
+
+tts:
+  provider: "piper"
+  fallback: "espeak"
+  voice_quality_mode: "local_fast"
+  available_providers:
+    - "piper"
+    - "coqui"
+    - "elevenlabs"
+    - "openai"
+    - "system"
+  piper:
+    enabled: true
+    binary: "piper"
+    voice: "es_ES-davefx-medium"
+    model_path: "~/.local/share/jarvis/voices/piper/es_ES-davefx-medium.onnx"
+    config_path: "~/.local/share/jarvis/voices/piper/es_ES-davefx-medium.onnx.json"
+    speaker: null
+    speed: 1.0
+    volume: 1.0
+  coqui:
+    enabled: false
+    model: "tts_models/multilingual/multi-dataset/xtts_v2"
+    speaker_wav: ""
+    language: "es"
+    device: "cpu"
+  elevenlabs:
+    enabled: false
+    voice_id: ""
+    model: "eleven_multilingual_v2"
+    api_key_env: "ELEVENLABS_API_KEY"
+  openai_tts:
+    enabled: false
+    model: "gpt-4o-mini-tts"
+    voice: "alloy"
+    api_key_env: "OPENAI_API_KEY"
+  system:
+    provider: "espeak-ng"
+    voice: "es"
+    speed: 150
+
+llm:
+  local_provider: "ollama"
+  local_model: "qwen2.5:3b"
+  heavy_provider: "groq"
+  heavy_model: "llama-3.3-70b-versatile"
+  use_remote_for_complex_tasks: true
+  complexity_threshold: 0.65
+  temperature: 0.4
+  max_tokens: 1024
+  timeout_seconds: 60
+
+ollama:
+  base_url: "http://localhost:11434"
+
+groq:
+  api_key_env: "GROQ_API_KEY"
+  base_url: "https://api.groq.com/openai/v1/chat/completions"
+
+openai:
+  api_key_env: "OPENAI_API_KEY"
+  model: "gpt-4o-mini"
+  base_url: "https://api.openai.com/v1/chat/completions"
+
+openrouter:
+  api_key_env: "OPENROUTER_API_KEY"
+  model: "meta-llama/llama-3.1-70b-instruct"
+  base_url: "https://openrouter.ai/api/v1/chat/completions"
+  site_url: "http://localhost"
+  app_name: "Jarvis Local Voice Agent"
+
+security:
+  allow_shell_commands: true
+  require_confirmation_for_dangerous_commands: true
+  dangerous_patterns:
+    - "rm -rf"
+    - "mkfs"
+    - "dd if="
+    - "shutdown"
+    - "reboot"
+    - "sudo"
+    - "chmod -R 777"
+    - "chown -R"
+    - ":(){"
+    - ">/dev/sda"
+    - "/etc/"
+    - "/boot/"
+    - "/usr/"
+    - "curl | sh"
+    - "wget | sh"
+    - "kill -9 1"
+  allowed_shell_commands:
+    - "ls"
+    - "pwd"
+    - "df"
+    - "free"
+    - "uptime"
+    - "systemctl"
+    - "xdg-open"
+    - "find"
+    - "cat"
+    - "grep"
+  allowed_apps:
+    - "firefox"
+    - "google-chrome"
+    - "chromium"
+    - "code"
+    - "nautilus"
+    - "gnome-terminal"
+    - "konsole"
+    - "x-terminal-emulator"
+  app_aliases:
+    navegador: "firefox"
+    firefox: "firefox"
+    chrome: "google-chrome"
+    chromium: "chromium"
+    vscode: "code"
+    visual studio code: "code"
+    código: "code"
+    terminal: "gnome-terminal"
+    archivos: "nautilus"
+  allowed_urls:
+    - "https://youtube.com"
+    - "https://www.youtube.com"
+    - "https://google.com"
+    - "https://www.google.com"
+    - "https://chat.openai.com"
+    - "https://chatgpt.com"
+    - "https://github.com"
+  url_aliases:
+    youtube: "https://www.youtube.com"
+    google: "https://www.google.com"
+    chatgpt: "https://chatgpt.com"
+    github: "https://github.com"
+
+paths:
+  data_dir: "~/.local/share/jarvis"
+  config_dir: "~/.config/jarvis"
+  logs_dir: "~/.local/share/jarvis/logs"
+  notes_dir: "~/NotasJarvis"
+  voices_dir: "~/.local/share/jarvis/voices"
+  temp_dir: "~/.local/share/jarvis/tmp"
+  reminders_file: "~/.local/share/jarvis/reminders.json"
+
+logging:
+  level: "INFO"
+  file: "~/.local/share/jarvis/logs/jarvis.log"
+  max_bytes: 5242880
+  backup_count: 3
