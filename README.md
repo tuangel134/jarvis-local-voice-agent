@@ -1,4 +1,4 @@
-# JARVIS LOCAL VOICE AGENT
+# JARVIS LOCAL VOICE AGENT ( aun en mejora, recibira actualizacion pronto y una demaciado grande )
 
 Jarvis Local Voice Agent es un asistente de voz local-first para Linux, Zorin OS y Ubuntu. Se controla desde terminal con `jarvis enable` y `jarvis disable`, escucha wake words como `hey jarvis`, transcribe tu voz, detecta intención, ejecuta skills seguras en tu PC y responde por los altavoces.
 
